@@ -1,0 +1,484 @@
+RS     EQU P2.0         ; RS OF LCD CONNECTED TO P2.0
+RW      EQU P2.1       ; Read/Write Control
+EN       EQU P2.2       ; EN OF LCD CONNECTED TO P2.1
+DATA_LINE    EQU P1         ; Data Port (DB0-DB7 on Port 1)
+RFID_STORAGE EQU 30H ; TEMPORARY STORAGE FOR RFID DATA
+BUZZ EQU P2.7       ; BUZZER CONNECTED TO P2.7
+RED EQU P2.3        ; RED LED CONNECTED TO P2.3
+GREEN EQU P2.4      ; GREEN LED CONNECTED TO P2.4
+BLUE EQU P2.5       ; BLUE LED CONNECTED TO P2.5
+COUNT_ANIMESH EQU R3 ; COUNTER REGISTER FOR NUMBER OF PRESENT FOR ANIMESH
+COUNT_ANURAG EQU R4  ; COUNTER REGISTER FOR NUMBER OF PRESENT FOR ANURAG
+COUNT_ROHIT EQU R5   ; COUNTER REGISTER FOR NUMBER OF PRESENT FOR ROHIT
+
+
+
+;====================================================================
+; RESET VECTOR
+;====================================================================
+    ORG 0000H
+
+    CLR BUZZ  			; MAKING THE BUZZER PIN AT LOW ON STARTING 
+    CLR RED			; MAKING THE RED LED AT LOW ON STARTING
+    CLR GREEN			; MAKING GREEN LED AT LOW ON STARTING 
+    MOV COUNT_ANIMESH, #0d     ; INITIALIZING 'PRESENT' COUNTER OF ANIMESH AS ZERO
+    MOV COUNT_ANURAG, #0d   ; INITIALIZING 'PRESENT' COUNTER OF ANURAG AS ZERO
+    MOV COUNT_ROHIT, #0d   ; INITIALIZING 'PRESENT' COUNTER OF ROHIT AS ZERO
+
+    ACALL LCD_INIT      ; INITIALIZE LCD FOR THE RESPECTIVE MODES
+    ACALL UART_INIT     ; INITIALIZE SERIAL COMMUNICATION FOR RFID INPUT AND FOR DATA OUTPUT TO LAPTOP
+
+    MOV DPTR, #START_MSG0 ; MOVING THE 16-BIT ADDRESS OF 'START_MSG' STRING IN DATA POINTER
+    SETB BUZZ           ; SETTING THE BUZZER
+    ACALL TRIPLE_DELAY  ; CALLING TRIPPLE DELAY SUBROUTINE 
+    CLR BUZZ            ; RESETTING THE BUZZER
+    ACALL DISPLAY_STRING ; DISPLAYING THE START MESSAGE AS '  WELCOME !!! '
+    ACALL TRIPLE_DELAY
+;====================================================================
+; MESSAGE SUBROUTINE
+;====================================================================
+REBOOT_MSG:
+    MOV A, #01H          ; HEX CODE FOR CLEARING LCD
+    ACALL LCD_CMD        ; CALLING LCD_CMD SUBROUTINE FOR GIVING COMMAND TO LCD
+   
+    MOV DPTR, #START_MSG1 ; MOVING THE 16-BIT ADDRESS OF STRING IN DATA POINTER
+    ACALL DISPLAY_STRING ; CALLING SUBROUTINE TO DISPLAY STRING '  PLEASE SCAN  '
+    ACALL DELAY           ; CALLING DELAY SUBROUTINE
+
+    MOV A, #0C0H         ; HEX CODE FOR MOVING THE CURSOR OF LCD TO SECOND ROW
+    ACALL LCD_CMD        ; CALLING LCD_CMD SUBROUTINE FOR GIVING COMMAND TO LCD
+    MOV DPTR, #START_MSG2 ; MOVING THE 16-BIT ADDRESS OF STRING IN DATA POINTER
+    ACALL DISPLAY_STRING ; CALLING SUBROUTINE TO DISPLAY STRING '  YOUR ID CARD  '
+    SJMP MAIN_LOOP       ; JUMPING TO MAIN LOOP
+
+MAIN_LOOP:
+    ACALL READ_RFID      ; CALLING READ_RFID SUBROUTINE FOR READING RFID
+    
+    MOV A, #01H          ; HEX CODE FOR CLEARING LCD DISPLAY
+    ACALL LCD_CMD        ; THIS WILL GIVE COMMAND TO CLEAR LCD DISPLAY
+    
+    ACALL COMPARE_RFID   ; CALLING COMPARE_RFID SUBROUTINE TO COMPARE THE UID RECEIVED FROM RFID WITH THE REGISTERED UID
+    ACALL REBOOT_MSG     ; CALLING REBOOT_MSG
+    SJMP MAIN_LOOP       ; INFINITE LOOP
+
+;====================================================================
+; LONG DELAY SUBROUTINE
+DELAY:
+    MOV R0, #255D
+OUTER_LOOP:
+    MOV R1, #150D
+INNER_LOOP:
+    DJNZ R1, INNER_LOOP
+    DJNZ R0, OUTER_LOOP
+    RET
+
+;====================================================================
+; SHORT DELAY SUBROUTINE  
+SHORT_DELAY:
+    MOV R0, #0C8H     
+SHORT_LOOP:
+    DJNZ R0, SHORT_LOOP
+    RET
+
+   
+DELAY_100MS:
+    MOV R0, #200D
+    HERE1:
+    MOV R1, #250D
+     HERE2:
+    DJNZ R1, INNER_LOOP
+    DJNZ R0, OUTER_LOOP
+    RET
+;====================================================================
+; LCD COMMAND SUBROUTINE
+LCD_CMD:
+    ACALL LCD_busy     ; CALLING LCD_BUSY SUBROUTINE TO CHECK WHETHER THE LCD IS READING FOR TAKING NEW COMMAND 
+    MOV DATA_LINE, A   ; MOVE COMMAND TO DATA BUS 
+    CLR RS	       ; CLEARING THE REGISTER SELECT PIN OF LCD TO SELECT COMMAND MODE
+    CLR RW		; CLEARING THE READ/WRTIE PIN TO WRITE TO THE LCD
+    SETB EN            ; ENABLE HIGH (START COMMAND)
+    
+    CLR EN             ; ENABLE LOW (END COMMAND)
+    
+    
+    RET
+
+  
+LCD_busy:
+         setb   P1.7        ;Make D7th bit of LCD data port as i/p to use it as buffer flag of lcd
+         setb   EN        ;setting enable pin for reading the buffer flag
+         clr    RS        ;Select command register
+         setb   RW        ;read/write pin is used as reading purpose
+check:
+         clr    EN        ;clearing enable 
+
+         setb   EN	 ; setting enable to make active high edge triggered 
+         jb     P1.7,check  ;read busy flag again and again till it becomes 0
+         ret                  ;Return from busy routine
+           
+;====================================================================
+; LCD DATA SUBROUTINE
+LCD_DATA:
+    ACALL LCD_busy  ; WAIT FOR DATA TO COMPLETE
+    MOV DATA_LINE, A   ; MOVE DATA TO DATA BUS
+    
+    SETB RS            ; SETTING RS MODE FOR DATA MODE ON LCD
+    
+    CLR RW		; CLEARING R/W FOR WRITE 
+    
+    SETB EN            ; ENABLE HIGH (START DATA WRITE)
+    
+    CLR EN             ; ENABLE LOW (END DATA WRITE)
+   
+    RET
+
+;====================================================================
+; LCD INITIALIZATION SUBROUTINE WITH LONGER DELAYS
+LCD_INIT:
+    MOV A, #38H        ; FUNCTION SET: 8-BIT MODE, 2-LINE DISPLAY
+    ACALL LCD_CMD
+   
+
+    MOV A, #0EH        ; DISPLAY ON, CURSOR ON MODE
+    ACALL LCD_CMD
+   
+
+    MOV A, #01H        ; CLEAR DISPLAY 
+    ACALL LCD_CMD
+   
+    
+    
+     MOV A, #06H        ; SHIFT CURSOR EACH TIME DATA IS WRITTEN TO LCD 
+    ACALL LCD_CMD
+   
+    
+
+    MOV A, #80H        ; SET CURSOR TO BEGINNING OF FIRST LINE OF FIRST ROW 
+    ACALL LCD_CMD
+  
+    RET
+
+;====================================================================
+; UART INITIALIZATION SUBROUTINE FOR SERIAL COMMUNICATION WITH RFID AND COMPUTER
+UART_INIT:
+    MOV TMOD, #20H    ; TIMER 1, MODE 2
+    MOV TH1, #0FDH    ; 9600 BAUD RATE WITH 11.0592 MHZ CRYSTAL
+    SETB TR1          ; START TIMER 1
+    MOV SCON, #50H    ; SERIAL MODE 1, REN ENABLED
+    RET
+
+;====================================================================
+; SUBROUTINE TO DISPLAY STRING
+DISPLAY_STRING:
+NEXT_CHAR:
+    CLR A
+    MOVC A, @A+DPTR   ; LOAD CHARACTER FROM CODE MEMORY WHERE DATA POINTER POINTS TO 
+    JZ END_STRING     ; IF CHARACTER IS NULL (0), END OF STRING
+    ACALL LCD_DATA    ; DISPLAY CHARACTER ON LCD
+    ACALL DELAY 
+    INC DPTR          ; POINT TO NEXT CHARACTER STORED IN CODE MEMORY
+    SJMP NEXT_CHAR	; JUMP TO NEXT_CHAR TILL THE WHOLE STRING IS DISPLAYED ON LCD
+END_STRING:
+    RET
+;====================================================================
+
+; RFID READING SUBROUTINE
+READ_RFID:
+    MOV R0, #RFID_STORAGE ; MOVING THE ADDRESS OF RAM MEMORY TO R0 REGISTER BANK WHERE 12-BYTE DATA RECEIVED FROM RFID IS STORED 
+    MOV R1, #12D          ; MOVING 12 IN R1 REGISTER BANK TO USE IT AS COUNTING PURPOSE 
+READ_CHAR:
+    JNB RI, READ_CHAR    ; WAIT UNTIL A CHARACTER IS RECEIVED
+    MOV A, SBUF          ; MOVE RECEIVED DATA FROM SERIAL BUFFER INTO ACCUMULATOR
+    CLR RI               ; CLEAR THE RECEIVE INTERRUPT FLAG
+    MOV @R0, A           ; STORE CHARACTER IN THE RAM LOCATION DISCRIBED BY THE ADDRESS IN R0 REGISTER 
+    INC R0               ; INCREMENT ADDRESS POINTER
+    DJNZ R1, READ_CHAR   ; REPEAT UNTIL 12 CHARACTERS ARE RECEIVED
+    RET
+    
+  TRIPLE_DELAY:
+	    ACALL DELAY
+	    ACALL DELAY
+	    ACALL DELAY
+	    RET		  
+		  
+	 
+; Subroutine to compare RFID data with stored IDs
+	       
+COMPARE_RFID:
+
+; Compare with ID_1
+ID_1:
+    MOV R0, #RFID_STORAGE     ; Load the temporary storage address for UID into R0
+    CJNE @R0, #"1", ID_2      ; Compare first byte, jump to ID_2 if not equal
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"1", ID_2      ; Compare second byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"1", ID_2      ; Compare third byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"1", ID_2      ; Compare fourth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"1", ID_2      ; Compare fifth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"1", ID_2      ; Compare sixth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"1", ID_2      ; Compare seventh byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"1", ID_2      ; Compare eighth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"1", ID_2      ; Compare ninth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"1", ID_2      ; Compare tenth byte
+    
+    
+    ; If matched, call match_found routine and display matched information
+    ACALL MATCH_FOUND 	      ; calling match_found subroutine to display '  MATCHED ' on lcd 
+    MOV DPTR, #ID1_MATCHED    ; Load address of ID1_MATCHED for display
+    ACALL DISPLAY_STRING      ; Display "ANIMESH" on LCD
+    
+    
+    MOV A, #0C0H              ; Set LCD cursor to second row
+    ACALL LCD_CMD		; calling command subroutine to to set cursor to second row 
+    ACALL DELAY
+    MOV DPTR, #ID1_ROLLNO     ; Load address of ID1_ROLLNO for display
+    ACALL DISPLAY_STRING      ; Display roll number "122EE0843"
+    ACALL TRIPLE_DELAY
+    ACALL INFO_STRING	      ; calling info_string to display total attendance of the student 
+    
+    
+    ; Increment attendance count for "ANIMESH"
+    INC COUNT_ANIMESH          
+    MOV A, COUNT_ANIMESH      ; Load attendance count into accumulator
+    ADD A, #30H               ; Convert count to ASCII to display on lcd and on laptop 
+    ACALL LCD_DATA
+    ACALL TRIPLE_DELAY
+    CLR GREEN
+    
+    
+     ; SENDING THE ATTENDANCE DATA OF 'ANIMESH' TO PC 
+    MOV DPTR, #DATA_ONPC1 	 ; move the address of first character byte stored in code memory to data pointer 
+    ACALL DISPLAY_ONPC		 ; display the string as ' ANIMESH - 122EE0843/ '
+    MOV A, COUNT_ANIMESH         ; Load the count of presents 
+    ADD A, #30H                  ; Convert count to ASCII (adding 30H)
+    MOV SBUF,A			 ; move the count to laptop using serial communication 
+    LOOP:JNB TI ,LOOP	         ; wait till transmit interupt is set indicating the transfer complete 
+    CLR TI			 ; clear transmit interupt 
+    RET                        ; Return from subroutine
+    
+
+; Compare with ID_2
+ID_2:
+    MOV R0, #RFID_STORAGE     ; Load the temporary storage address for UID into R0
+    CJNE @R0, #"2", ID_3  ; Compare first byte, jump to ID_3 if not equal
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"2", ID_3  ; Compare second byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"2", ID_3  ; Compare third byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"2", ID_3  ; Compare fourth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"2", ID_3  ; Compare fifth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"2", ID_3  ; Compare sixth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"2", ID_3  ; Compare seventh byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"2", ID_3  ; Compare eighth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"2", ID_3  ; Compare ninth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"2", ID_3  ; Compare tenth byte
+    
+    
+    
+    ; If matched, call match_found routine and display matched information
+    ACALL MATCH_FOUND         ;calling match_found subroutine to display '  MATCHED ' on lcd 
+    MOV DPTR, #ID2_MATCHED    ; Load address of ID2_MATCHED for display
+    ACALL DISPLAY_STRING      ; Display "ANURAG" on LCD
+    MOV A, #0C0H              ; Set LCD cursor to second row
+    ACALL LCD_CMD
+    ACALL DELAY
+    MOV DPTR, #ID2_ROLLNO     ; Load address of ID2_ROLLNO for display
+    ACALL DISPLAY_STRING      ; Display roll number "122EE0843"
+    ACALL TRIPLE_DELAY
+    ACALL INFO_STRING	      ; calling info_string to display total attendance of the student 
+    
+    
+    ; Increment attendance count for "ANURAG"
+    INC COUNT_ANURAG
+    MOV A, COUNT_ANURAG       ; Load attendance count into accumulator
+    ADD A, #30H               ; Convert count to ASCII
+    ACALL LCD_DATA
+    ACALL TRIPLE_DELAY
+    ACALL TRIPLE_DELAY
+    CLR GREEN
+    
+    
+    ; SENDING THE ATTENDANCE DATA OF 'ANURAG' TO PC 
+    MOV DPTR, #DATA_ONPC2        ; move the address of first character byte stored in code memory to data pointer 
+    ACALL DISPLAY_ONPC           ; display the string as ' ANURAG - 122EE0371/ '
+    MOV A, COUNT_ANURAG          ; Load the count of presents 
+    ADD A, #30H                  ; Convert count to ASCII (adding 30H)
+    MOV SBUF,A  
+    LOOP1:JNB TI ,LOOP1
+    CLR TI
+    RET                        ; Return from subroutine
+    
+    
+    
+    ; Compare with ID_1
+ID_3:
+    MOV R0, #RFID_STORAGE     ; Load the temporary storage address for UID into R0
+    CJNE @R0, #"3", NO_MATCH      ; Compare first byte, jump to NO_MATCH if not equal
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"3", NO_MATCH      ; Compare second byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"3", NO_MATCH      ; Compare third byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"3", NO_MATCH      ; Compare fourth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"3", NO_MATCH      ; Compare fifth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"3", NO_MATCH      ; Compare sixth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"3", NO_MATCH      ; Compare seventh byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"3", NO_MATCH      ; Compare eighth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"3", NO_MATCH      ; Compare ninth byte
+    INC R0                    ; Increment R0 to next byte
+    CJNE @R0, #"3", NO_MATCH      ; Compare tenth byte
+    
+    
+    ; If matched, call match_found routine and display matched information
+    ACALL MATCH_FOUND 	      ; calling match_found subroutine to display '  MATCHED ' on lcd 
+    MOV DPTR, #ID3_MATCHED    ; Load address of ID3_MATCHED for display
+    ACALL DISPLAY_STRING      ; Display "ROHIT" on LCD
+    MOV A, #0C0H              ; Set LCD cursor to second row
+    ACALL LCD_CMD		; calling command subroutine to to set cursor to second row 
+    ACALL DELAY
+    MOV DPTR, #ID3_ROLLNO     ; Load address of ID3_ROLLNO for display
+    ACALL DISPLAY_STRING      ; Display roll number "122EE0361"
+    ACALL TRIPLE_DELAY
+    ACALL INFO_STRING	      ; calling info_string to display total attendance of the student 
+    
+    
+    
+    ; Increment attendance count for "ROHIT"
+    INC COUNT_ROHIT          
+    MOV A, COUNT_ROHIT      ; Load attendance count into accumulator
+    ADD A, #30H               ; Convert count to ASCII to display on lcd and on laptop 
+    ACALL LCD_DATA
+    ACALL TRIPLE_DELAY
+    CLR GREEN
+    
+    
+     ; SENDING THE ATTENDANCE DATA OF 'ROHIT' TO PC 
+    MOV DPTR, #DATA_ONPC3 	 ; move the address of first character byte stored in code memory to data pointer 
+    ACALL DISPLAY_ONPC		 ; display the string as ' ROHIT - 122EE0361/ '
+    MOV A, COUNT_ROHIT         ; Load the count of presents 
+    ADD A, #30H                  ; Convert count to ASCII (adding 30H)
+    MOV SBUF,A			 ; move the count to laptop using serial communication 
+    LOOP3:JNB TI ,LOOP3	         ; wait till transmit interupt is set indicating the transfer complete 
+    CLR TI			 ; clear transmit interupt 
+    RET                        ; Return from subroutine
+
+; No match found routine
+NO_MATCH:
+    MOV DPTR, #NOT_MATCHED    ; Load address for "NOT MATCHED" message
+    SETB BUZZ		      ; set buzzer to indicate wrong ID 
+    SETB RED		       ; display red led to indicate wrong ID
+    ACALL DISPLAY_STRING      ; Display "NOT MATCHED"
+    ACALL TRIPLE_DELAY 
+    ACALL TRIPLE_DELAY
+    ACALL DELAY
+    CLR BUZZ  
+    CLR RED
+    RET                        ; Return from subroutine
+
+; Match found routine
+
+
+MATCH_FOUND:
+    SETB BUZZ                  ; setting buzzer for short duration to indicate successful detection of ID 
+    SETB GREEN		       ; setting green LED for indicating successful detection 
+    ACALL TRIPLE_DELAY
+    CLR BUZZ		
+    MOV DPTR, #MATCHED        ; Load address for "MATCHED" message
+    ACALL DISPLAY_STRING      ; Display "MATCHED"
+    ACALL TRIPLE_DELAY
+    
+    MOV A, #01H               ; Clear display command
+    ACALL LCD_CMD
+    ACALL DELAY
+    
+    RET                        ; Return from subroutine
+
+  ; INFO STRING TO DISPLAY ' TOTAL ATTENDANCE' 
+  
+  
+ INFO_STRING:
+   ; Clear display and show additional information
+    MOV A, #01H               ; Clear display command
+    ACALL LCD_CMD
+    ACALL DELAY
+    MOV DPTR, #NUMBER         ; Display attendance number
+    ACALL DISPLAY_STRING
+    ACALL TRIPLE_DELAY
+    
+    MOV A, #0C0H              ; Set cursor to second row
+    ACALL LCD_CMD
+    ACALL DELAY
+    MOV DPTR, #EQUAL          ; Display equal sign
+    ACALL DISPLAY_STRING
+    ACALL DELAY
+    RET 
+
+ ;====================================================================
+
+;SUBROUTINE TO DISPLAY CHARACTER ON THE COMPUTER USING SERIAL COMMUNICATION 
+ DISPLAY_ONPC :
+	    CHAR:
+    CLR A
+    MOVC A, @A+DPTR   ; LOAD CHARACTER FROM CODE MEMORY
+    JZ END_CHAR     ; IF CHARACTER IS NULL (0), END OF STRING
+    MOV SBUF,A        ; MOVING ASCII VALUE OF CHARACTER TO SBUF 
+    PC_LOOP:JNB TI , PC_LOOP  ; WAITING TILL TRASNMIT INTERUPT IS SET 
+    CLR TI  		      ; CLEARING TRANSMIT INTERUPT 
+    INC DPTR          ;  POINT TO NEXT CHARACTER
+    SJMP CHAR
+   END_CHAR:
+      RET
+
+	       
+ 
+	    
+
+ 
+;====================================================================
+; String Data Block  
+
+START_MSG0:     DB '  WELCOME !!! ',0         ; Initial greeting message
+START_MSG1:     DB '  PLEASE SCAN  ',0        ; Prompt to scan the ID card
+START_MSG2:     DB '  YOUR ID CARD  ',0       ; Additional instruction for scanning
+
+MATCHED:        DB '     MATCHED    ',0       ; Displayed when ID matches
+NOT_MATCHED:    DB '  NOT  MATCHED  ',0       ; Displayed when ID does not match
+
+ID1_MATCHED:    DB '     ANIMESH    ',0       ; Name displayed for ID1 match
+ID1_ROLLNO:     DB '   122EE0843   ',0        ; Roll number for ID1
+
+ID2_MATCHED:    DB '     ANURAG     ',0       ; Name displayed for ID2 match
+ID2_ROLLNO:     DB '   122EE0371   ',0        ; Roll number for ID2
+
+ID3_MATCHED:    DB '     ROHIT     ',0       ; Name displayed for ID3 match
+ID3_ROLLNO:     DB '   122EE0361   ',0        ; Roll number for ID3
+
+DATA_ONPC1:      DB ' ANIMESH - 122EE0843/ ',0
+DATA_ONPC2:      DB ' ANURAG - 122EE0371/ ',0
+DATA_ONPC3:      DB ' ROHIT - 122EE0361/ ',0
+
+
+NUMBER:         DB 'TOTAL ATTENDANCE',0       ; Display for attendance count
+EQUAL:          DB '        =  ',0            ; Equal sign for display formatting
+
+END                                            
